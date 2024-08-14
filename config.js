@@ -8,13 +8,13 @@ require('dotenv-safe').config({
 
 module.exports = {
   NODE_ENV: process.env.NODE_ENV || 'development',
-  DATABASE_SCHEMA: process.env.DATABASE_SCHEMA || 'public', 
+  DATABASE_SCHEMA: process.env.DATABASE_SCHEMA || 'public',
   DATABASE_URL: process.env.DATABASE_URL || '',
-  SHOW_PG_MONITOR: process.env.SHOW_PG_MONITOR || 'false',
+  SHOW_PG_MONITOR: process.env.SHOW_PG_MONITOR || 'true',
 }
 
 const keys = Object.keys(module.exports).sort()
 for (const name of keys) {
-  console.log(`${name} [${module.exports[name]}]`);
+  console.log(`${name} [${module.exports[ name ]}]`);
 }
 console.log();

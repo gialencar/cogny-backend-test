@@ -1,6 +1,7 @@
 const { DATABASE_SCHEMA, DATABASE_URL, SHOW_PG_MONITOR } = require('./config');
 const massive = require('massive');
 const monitor = require('pg-monitor');
+const axios = require('axios');
 
 // Call start
 (async () => {
@@ -12,8 +13,8 @@ const monitor = require('pg-monitor');
     }, {
         // Massive Configuration
         scripts: process.cwd() + '/migration',
-        allowedSchemas: [DATABASE_SCHEMA],
-        whitelist: [`${DATABASE_SCHEMA}.%`],
+        allowedSchemas: [ DATABASE_SCHEMA ],
+        whitelist: [ `${DATABASE_SCHEMA}.%` ],
         excludeFunctions: true,
     }, {
         // Driver Configuration
@@ -31,10 +32,10 @@ const monitor = require('pg-monitor');
 
     const execFileSql = async (schema, type) => {
         return new Promise(async resolve => {
-            const objects = db['user'][type];
+            const objects = db[ 'user' ][ type ];
 
             if (objects) {
-                for (const [key, func] of Object.entries(objects)) {
+                for (const [ key, func ] of Object.entries(objects)) {
                     console.log(`executing ${schema} ${type} ${key}...`);
                     await func({
                         schema: DATABASE_SCHEMA,
@@ -65,22 +66,50 @@ const monitor = require('pg-monitor');
     try {
         await migrationUp();
 
-        //exemplo de insert
-        const result1 = await db[DATABASE_SCHEMA].api_data.insert({
-            doc_record: { 'a': 'b' },
-        })
-        console.log('result1 >>>', result1);
+        const data = await axios
+            .get('https://datausa.io/api/data?drilldowns=Nation&measures=Population')
+            .then(({ data }) => data);
 
-        //exemplo select
-        const result2 = await db[DATABASE_SCHEMA].api_data.find({
-            is_active: true
+        // Inserção dos dados no banco
+        console.log('\n\n\x1b[7m\x1b[1m----- Inserção -----\x1b[0m')
+        const existingData = await db[ DATABASE_SCHEMA ].api_data.findOne({
+            doc_id: data.source[ 0 ].annotations.table_id
         });
-        console.log('result2 >>>', result2);
+        if (!existingData) {
+            await db[ DATABASE_SCHEMA ].api_data.insert({
+                doc_record: data,
+                api_name: data.source[ 0 ].name,
+                doc_id: data.source[ 0 ].annotations.table_id,
+                doc_name: data.source[ 0 ].annotations.dataset_name,
+            });
+        } else console.log('Os dados já foram inseridos no banco. Ignorando...');
 
+        // Calculo da somatória em memória
+        console.log('\n\x1b[7m\x1b[1m---- Em memória ----\x1b[0m')
+        const sum = data.data
+            .filter((item) => [ 2020, 2019, 2018 ].includes(item[ 'ID Year' ]))
+            .reduce((acc, cur) => acc + cur.Population, 0)
+        console.log(`Resultado da soma: \x1b[33m${sum}\x1b[0m`)
+
+        // Calculo da somatória usando SELECT no banco
+        console.log('\n\x1b[7m\x1b[1m----- No banco -----\x1b[0m')
+        await db.query(
+            `
+            SELECT SUM((entry->>'Population')::int) AS "populationSum"
+            FROM (
+                SELECT jsonb_array_elements(doc_record->'data') AS entry
+                FROM ${DATABASE_SCHEMA}.api_data
+            ) AS data
+            WHERE entry->>'ID Year' IN ('2020', '2019', '2018');
+            `
+        ).then((result) => {
+            console.log(`Resultado da soma: \x1b[33m${result[ 0 ].populationSum}\x1b[0m\n`)
+        })
     } catch (e) {
         console.log(e.message)
     } finally {
         console.log('finally');
     }
     console.log('main.js: after start');
+    db.instance.$pool.end();
 })();
